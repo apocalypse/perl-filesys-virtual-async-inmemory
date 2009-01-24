@@ -138,6 +138,14 @@ sub _validate_fs {
 sub _fs {
 	return shift->{'fs'};
 }
+sub readonly {
+	my $self = shift;
+	my $ro = shift;
+	if ( defined $ro ) {
+		$self->{'readonly'} = $ro ? 1 : 0;
+	}
+	return $self->{'readonly'};
+}
 
 sub cwd {
 	my( $self, $cwd, $cb ) = @_;
