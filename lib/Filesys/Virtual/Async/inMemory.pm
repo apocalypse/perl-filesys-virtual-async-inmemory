@@ -10,13 +10,13 @@ $VERSION = '0.01';
 use base 'Filesys::Virtual::Async';
 
 # get some system constants
-use Errno qw( :POSIX );		# ENOENT EISDIR etc
+use Errno qw( :POSIX );			# ENOENT EISDIR etc
 use Fcntl qw( :DEFAULT :mode :seek );	# S_IFREG S_IFDIR, O_SYNC O_LARGEFILE etc
 
 # get some handy stuff
 use File::Spec;
 
-# create in-memory FHs
+# create our virtual FHs
 use IO::Scalar;
 
 # Set some constants
@@ -97,31 +97,26 @@ sub new {
 
 #my %files = (
 #	'/' => {
-#		type => 0040,
-#		mode => 0755,
+#		mode => oct( '040755' ),
 #		ctime => time()-1000,
 #	},
 #	'/a' => {
 #		data => "File 'a'.\n",
-#		type => 0100,
-#		mode => 0755,
+#		mode => oct( 100755 ),
 #		ctime => time()-2000,
 #	},
 #	'/b' => {
 #		data => "This is file 'b'.\n",
-#		type => 0100,
-#		mode => 0644,
+#		mode => oct( 100644 ),
 #		ctime => time()-1000,
 #	},
 #	'/foo' => {
-#		type => 0040,
-#		mode => 0755,
+#		mode => oct( '040755' ),
 #		ctime => time()-3000,
 #	},
 #	'/foo/bar' => {
-#		data => "APOCAL is the best!\nJust kidding :)",
-#		type => 0100,
-#		mode => 0755,
+#		data => "APOCAL is the best!\nJust kidding :)\n",
+#		mode => oct( 100755 ),
 #		ctime => time()-5000,
 #	},
 #);
@@ -178,9 +173,14 @@ sub open {
 
 	# make sure we're opening a real file
 	if ( exists $self->_fs->{ $path } ) {
-		unless ( $self->_fs->{ $path }{'type'} & oct( 040 ) ) {
+		if ( ! S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
 			# return a $fh object
-			$callback->( IO::Scalar->new( \${ $self->_fs->{ $path }->{'data'} } ) );
+			my $fh = IO::Scalar->new( \$self->_fs->{ $path }->{'data'} );
+			if ( defined $fh ) {
+				$callback->( $fh );
+			} else {
+				$callback->( -EIO() );
+			}
 		} else {
 			# path is a directory!
 			$callback->( -EISDIR() );
@@ -198,7 +198,7 @@ sub close {
 
 	# cleanly close the FH
 	$fh->close;
-	$callback->( 1 );
+	$callback->( 0 );
 
 	return;
 }
@@ -216,28 +216,31 @@ sub read {
 		$_[4]->( -EIO() );
 	} else {
 		# stuff the read data into the true buffer, determined by dataoffset
-		substr( $_[2], $_[3], $_[1], $buf );
+		substr( $_[2], $_[3], $ret, $buf );
 
 		# inform the callback of success
-		$_[4]->( $_[1] );
+		$_[4]->( $ret );
 	}
 
 	return;
 }
 
 sub write {
-	# aio_write $fh,$offset,$length, $data,$dataoffset, $callback->($retval)
-	# have to leave @_ alone so caller will get proper $buffer reference :(
-	my $self = shift;
-	my $fh = shift;
+	my( $self, $fh, $offset, $length, $data, $dataoffset, $callback ) = @_;
 
-	# write the data!
-	my $ret = $fh->write( $_[2], $_[1], $_[0] ); # FIXME does write actually return anything?
-	if ( ! $ret ) {
-		$_[4]->( -EIO() );
+	# are we readonly?
+	if ( $self->readonly ) {
+		$callback->( -EROFS() );
 	} else {
-		# return length
-		$_[4]->( $_[0] );
+		# write the data!
+		# FIXME we cannot use dataoffset, eh...
+		my $ret = $fh->write( $data, $length, $offset );
+		if ( ! $ret ) {
+			$callback->( -EIO() );
+		} else {
+			# return length
+			$callback->( length( $data ) );
+		}
 	}
 
 	return;
@@ -245,6 +248,12 @@ sub write {
 
 sub sendfile {
 	my( $self, $out_fh, $in_fh, $in_offset, $length, $callback ) = @_;
+
+	# are we readonly?
+	if ( $self->readonly ) {
+		$callback->( -EROFS() );
+		return;
+	}
 
 	# start by reading $length from $in_fh
 	my $buf = '';
@@ -254,7 +263,7 @@ sub sendfile {
 	} else {
 		# write it to $out_fh ( at the end )
 		$out_fh->seek( 0, SEEK_END );
-		$ret = $out_fh->write( $buf, $length );	# FIXME does write actually return anything?
+		$ret = $out_fh->write( $buf, $length );
 		if ( $ret ) {
 			$callback->( $length );
 		} else {
@@ -269,7 +278,7 @@ sub readahead {
 	my( $self, $fh, $offset, $length, $callback ) = @_;
 
 	# not implemented, always return success
-	$callback->( 1 );
+	$callback->( 0 );
 	return;
 }
 
@@ -289,12 +298,15 @@ sub stat {
 	if ( exists $self->_fs->{ $path } ) {
 		my $info = $self->_fs->{ $path };
 
-		my $size = exists( $info->{'cont'} ) ? length( $info->{'cont'} ) : 0;
-		my $modes = ( $info->{'type'} << 9 ) + $info->{'mode'};
+		my $size = exists $info->{'data'} ? length( $info->{'data'} ) : 0;
+		my $modes = $info->{'mode'};
 
-		# FIXME make sure nlink is proper for directories
-		# FIXME check this data, I suspect it's causing vi failures?
 		my ($dev, $ino, $rdev, $blocks, $gid, $uid, $nlink, $blksize) = ( 0, 0, 0, 1, (split( /\s+/, $) ))[0], $>, 1, 1024 );
+		if ( S_ISDIR( $modes ) ) {
+			# count the children directories
+			$nlink = 2; # start with 2 ( . and .. )
+			$nlink += grep { $_ =~ /^$path\/?[^\/]+$/ and S_ISDIR( $self->_fs->{ $_ }{'mode'} ) } ( keys %{ $self->_fs } );
+		}
 
 		$gid = $info->{'gid'} if exists $info->{'gid'};
 		$uid = $info->{'uid'} if exists $info->{'uid'};
@@ -304,7 +316,7 @@ sub stat {
 		$mtime = $info->{'mtime'} if exists $info->{'mtime'};
 
 		# finally, return the darn data!
-		$callback->( $dev, $ino, $modes, $nlink, $uid, $gid, $rdev, $size, $atime, $mtime, $ctime, $blksize, $blocks );
+		$callback->( [ $dev, $ino, $modes, $nlink, $uid, $gid, $rdev, $size, $atime, $mtime, $ctime, $blksize, $blocks ] );
 	} else {
 		# path does not exist
 		$callback->( -ENOENT() );
@@ -334,6 +346,12 @@ sub utime {
 		return;
 	}
 
+	# are we readonly?
+	if ( $self->readonly ) {
+		$callback->( -EROFS() );
+		return;
+	}
+
 	if ( exists $self->_fs->{ $path } ) {
 		# okay, update the time
 		if ( ! defined $atime ) { $atime = time() }
@@ -342,7 +360,7 @@ sub utime {
 		$self->_fs->{ $path }{'mtime'} = $mtime;
 
 		# successful update of time!
-		$callback->( 1 );
+		$callback->( 0 );
 	} else {
 		# path does not exist
 		$callback->( -ENOENT() );
@@ -360,6 +378,12 @@ sub chown {
 			warn 'Passing a REF to chown() is not supported!';
 		}
 		$callback->( -ENOSYS() );
+		return;
+	}
+
+	# are we readonly?
+	if ( $self->readonly ) {
+		$callback->( -EROFS() );
 		return;
 	}
 
@@ -394,8 +418,14 @@ sub truncate {
 		return;
 	}
 
+	# are we readonly?
+	if ( $self->readonly ) {
+		$callback->( -EROFS() );
+		return;
+	}
+
 	if ( exists $self->_fs->{ $path } ) {
-		unless ( $self->_fs->{ $path }{'type'} & oct( 040 ) ) {
+		if ( ! S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
 			# valid file, proceed with the truncate!
 
 			# sanity check, offset cannot be bigger than the length of the file!
@@ -435,6 +465,12 @@ sub chmod {
 		return;
 	}
 
+	# are we readonly?
+	if ( $self->readonly ) {
+		$callback->( -EROFS() );
+		return;
+	}
+
 	if ( exists $self->_fs->{ $path } ) {
 		# okay, update the mode!
 		$self->_fs->{ $path }{'mode'} = $mode;
@@ -452,8 +488,14 @@ sub chmod {
 sub unlink {
 	my( $self, $path, $callback ) = @_;
 
+	# are we readonly?
+	if ( $self->readonly ) {
+		$callback->( -EROFS() );
+		return;
+	}
+
 	if ( exists $self->_fs->{ $path } ) {
-		unless ( $self->_fs->{ $path }{'type'} & oct( 040 ) ) {
+		if ( ! S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
 			# valid file, proceed with the deletion!
 			delete $self->_fs->{ $path };
 
@@ -474,9 +516,11 @@ sub unlink {
 sub mknod {
 	my( $self, $path, $mode, $dev, $callback ) = @_;
 
-	# cleanup the mode ( for some reason we get '100644' instead of '0644' )
-	# FIXME this seems to also screw up the S_ISREG() stuff, have to investigate more...
-	$mode = $mode & oct( 00777 );
+	# are we readonly?
+	if ( $self->readonly ) {
+		$callback->( -EROFS() );
+		return;
+	}
 
 	if ( exists $self->_fs->{ $path } or $path eq '.' or $path eq '..' ) {
 		# already exists!
@@ -487,8 +531,10 @@ sub mknod {
 
 		# we only allow regular files to be created
 		if ( $dev == 0 ) {
+			# make sure mode is proper
+			$mode = $mode | oct( '100000' );
+
 			$self->_fs->{ $path } = {
-				type => oct( 100 ),
 				mode => $mode,
 				ctime => time(),
 				data => "",
@@ -535,6 +581,12 @@ sub readlink {
 sub rename {
 	my( $self, $srcpath, $dstpath, $callback ) = @_;
 
+	# are we readonly?
+	if ( $self->readonly ) {
+		$callback->( -EROFS() );
+		return;
+	}
+
 	if ( exists $self->_fs->{ $srcpath } ) {
 		if ( ! exists $self->_fs->{ $dstpath } ) {
 			# should we add validation to make sure all parents already exist
@@ -559,6 +611,12 @@ sub rename {
 sub mkdir {
 	my( $self, $path, $mode, $callback ) = @_;
 
+	# are we readonly?
+	if ( $self->readonly ) {
+		$callback->( -EROFS() );
+		return;
+	}
+
 	if ( exists $self->_fs->{ $path } ) {
 		# already exists!
 		$callback->( -EEXIST() );
@@ -566,9 +624,11 @@ sub mkdir {
 		# should we add validation to make sure all parents already exist
 		# seems like mkdir() and friends check themselves, so we don't have to do it...
 
+		# make sure mode is proper
+		$mode = $mode | oct( '040000' );
+
 		# create the directory!
 		$self->_fs->{ $path } = {
-			type => oct( 040 ),
 			mode => $mode,
 			ctime => time(),
 		};
@@ -583,8 +643,14 @@ sub mkdir {
 sub rmdir {
 	my( $self, $path, $callback ) = @_;
 
+	# are we readonly?
+	if ( $self->readonly ) {
+		$callback->( -EROFS() );
+		return;
+	}
+
 	if ( exists $self->_fs->{ $path } ) {
-		if ( $self->_fs->{ $path }{'type'} & oct( 040 ) ) {
+		if ( S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
 			# valid directory, does this directory have any children ( files, subdirs ) ??
 			my $children = grep { $_ =~ /^$path/ } ( keys %{ $self->_fs } );
 			if ( $children == 1 ) {
@@ -612,15 +678,15 @@ sub readdir {
 	my( $self, $path, $callback ) = @_;
 
 	if ( exists $self->_fs->{ $path } ) {
-		if ( $self->_fs->{ $path }{'type'} & oct( 040 ) ) {
+		if ( S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
 			# construct all the data in this directory
-			my @list = map { $_ =~ s/^$path\/?//; $_ }
+			my @list = map { my $f = $_; $f =~ s/^$path\/?//; $f }
 				grep { $_ =~ /^$path\/?[^\/]+$/ } ( keys %{ $self->_fs } );
 
 			# no need to add "." and ".."
 
 			# return the list!
-			$callback->( @list );
+			$callback->( \@list );
 		} else {
 			# path is not a directory!
 			$callback->( -ENOTDIR() );
@@ -639,12 +705,12 @@ sub load {
 	my $path = shift;
 
 	if ( exists $self->_fs->{ $path } ) {
-		unless ( $self->_fs->{ $path }{'type'} & oct( 040 ) ) {
+		if ( ! S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
 			# simply read it all into the buf
 			$_[0] = $self->_fs->{ $path }{'data'};
 
 			# successful load!
-			$_[1]->( length( self->_fs->{ $path }{'data'} ) );
+			$_[1]->( length( $self->_fs->{ $path }{'data'} ) );
 		} else {
 			# path is a directory!
 			$_[1]->( -EISDIR() );
@@ -660,6 +726,12 @@ sub load {
 sub copy {
 	my( $self, $srcpath, $dstpath, $callback ) = @_;
 
+	# are we readonly?
+	if ( $self->readonly ) {
+		$callback->( -EROFS() );
+		return;
+	}
+
 	if ( exists $self->_fs->{ $srcpath } ) {
 		if ( ! exists $self->_fs->{ $dstpath } ) {
 			# should we add validation to make sure all parents already exist
@@ -668,14 +740,14 @@ sub copy {
 			# proceed with the copy!
 			$self->_fs->{ $dstpath } = { %{ $self->_fs->{ $srcpath } } };
 
-			$callback->( -1 );
+			$callback->( 0 );
 		} else {
 			# destination already exists!
-			$callback->( 0 );
+			$callback->( -EEXIST() );
 		}
 	} else {
 		# path does not exist
-		$callback->( 0 );
+		$callback->( -ENOENT() );
 	}
 
 	return;
@@ -696,15 +768,13 @@ sub scandir {
 	# this is a glorified version of readdir...
 
 	if ( exists $self->_fs->{ $path } ) {
-		if ( $self->_fs->{ $path }{'type'} & oct( 040 ) ) {
+		if ( S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
 			# construct all the data in this directory
-			my @files = map { $_ if $self->_fs->{ $_ }{'type'} & oct( 100 ) }
-				map { $_ =~ s/^$path\/?//; $_ }
-				grep { $_ =~ /^$path\/?[^\/]+$/ } ( keys %{ $self->_fs } );
+			my @files = map { my $f = $_; $f =~ s/^$path\/?//; $f }
+				grep { $_ =~ /^$path\/?[^\/]+$/ and ! S_ISDIR( $self->_fs->{ $_ }{'mode'} ) } ( keys %{ $self->_fs } );
 
-			my @dirs = map { $_ if $self->_fs->{ $_ }{'type'} & oct( 040 ) }
-				map { $_ =~ s/^$path\/?//; $_ }
-				grep { $_ =~ /^$path\/?[^\/]+$/ } ( keys %{ $self->_fs } );
+			my @dirs = map { my $f = $_; $f =~ s/^$path\/?//; $f }
+				grep { $_ =~ /^$path\/?[^\/]+$/ and S_ISDIR($self->_fs->{ $_ }{'mode'} ) } ( keys %{ $self->_fs } );
 
 			# no need to add "." and ".."
 
@@ -712,11 +782,11 @@ sub scandir {
 			$callback->( \@files, \@dirs );
 		} else {
 			# path is not a directory!
-			$callback->();
+			$callback->( -ENOTDIR() );
 		}
 	} else {
 		# path does not exist!
-		$callback->();
+		$callback->( -ENOENT() );
 	}
 
 	return;
@@ -725,13 +795,22 @@ sub scandir {
 sub rmtree {
 	my( $self, $path, $callback ) = @_;
 
+	# are we readonly?
+	if ( $self->readonly ) {
+		$callback->( -EROFS() );
+		return;
+	}
+
 	if ( exists $self->_fs->{ $path } ) {
-		if ( $self->_fs->{ $path }{'type'} & oct( 040 ) ) {
+		if ( S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
 			# delete all stuff under this path
 			my @entries = grep { $_ =~ /^$path\/?.+$/ } ( keys %{ $self->_fs } );
 			foreach my $e ( @entries ) {
 				delete $self->_fs->{ $e };
 			}
+
+			# return success
+			$callback->( 0 );
 		} else {
 			# path is not a directory!
 			$callback->( -ENOTDIR() );
@@ -748,7 +827,7 @@ sub fsync {
 	my( $self, $fh, $callback ) = @_;
 
 	# not implemented, always return success
-	$callback->( 1 );
+	$callback->( 0 );
 
 	return;
 }
@@ -757,7 +836,7 @@ sub fdatasync {
 	my( $self, $fh, $callback ) = @_;
 
 	# not implemented, always return success
-	$callback->( 1 );
+	$callback->( 0 );
 
 	return;
 }

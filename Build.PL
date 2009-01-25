@@ -30,9 +30,6 @@ my $build = Module::Build->new(
 		# system constants
 		'Errno'				=> 0,
 		'Fcntl'				=> 0,
-
-		# handy $fh stuff
-		'IO::String'			=> 0,
 	},
 
 	# FIXME wishlist...
