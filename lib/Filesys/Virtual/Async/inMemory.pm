@@ -72,7 +72,7 @@ sub new {
 
 		$opt{'filesystem'} = {
 			File::Spec->rootdir() => {
-				'mode'	=> oct( '040644' ),
+				'mode'	=> oct( '040755' ),
 				'ctime'	=> time(),
 			},
 		};
@@ -178,6 +178,26 @@ sub open {
 
 	# FIXME fix relative path/sanitize path?
 
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_open' ) ) {
+			my $scalar_ref = $self->_open( $path );
+			if ( defined $scalar_ref ) {
+				my $fh = IO::Scalar->new( $scalar_ref );
+				if ( defined $fh ) {
+					$callback->( $fh );
+				} else {
+					$callback->( -EIO() );
+				}
+			} else {
+				$callback->( -EINVAL() );
+			}
+		} else {
+			$callback->( -ENOSYS() );
+		}
+		return;
+	}
+
 	# make sure we're opening a real file
 	if ( exists $self->_fs->{ $path } ) {
 		if ( ! S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
@@ -239,6 +259,17 @@ sub write {
 	if ( $self->readonly ) {
 		$callback->( -EROFS() );
 	} else {
+		# determine if we should be using callback mode
+		if ( ref( $self ) ne __PACKAGE__ ) {
+			if ( $self->can( '_write' ) ) {
+				# FIXME should we also use dataoffset?
+				$callback->( $self->_write( $fh, $offset, $length, $data ) );
+			} else {
+				$callback->( -ENOSYS() );
+			}
+			return;
+		}
+
 		# write the data!
 		# FIXME we cannot use dataoffset, eh...
 		my $ret = $fh->write( $data, $length, $offset );
@@ -303,6 +334,21 @@ sub stat {
 
 	# FIXME fix relative path/sanitize path?
 
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_stat' ) ) {
+			my $ret = $self->_stat( $path );
+			if ( defined $ret ) {
+				$callback->( $ret );
+			} else {
+				$callback->( -ENOENT() );
+			}
+		} else {
+			$callback->( -ENOSYS() );
+		}
+		return;
+	}
+
 	# gather the proper information
 	if ( exists $self->_fs->{ $path } ) {
 		my $info = $self->_fs->{ $path };
@@ -365,6 +411,16 @@ sub utime {
 
 	# FIXME fix relative path/sanitize path?
 
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_utime' ) ) {
+			$callback->( $self->_utime( $path, $atime, $mtime ) );
+		} else {
+			$callback->( -ENOSYS() );
+		}
+		return;
+	}
+
 	if ( exists $self->_fs->{ $path } ) {
 		# okay, update the time
 		if ( ! defined $atime ) { $atime = time() }
@@ -401,6 +457,16 @@ sub chown {
 	}
 
 	# FIXME fix relative path/sanitize path?
+
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_chown' ) ) {
+			$callback->( $self->_chown( $path, $uid, $gid ) );
+		} else {
+			$callback->( -ENOSYS() );
+		}
+		return;
+	}
 
 	if ( exists $self->_fs->{ $path } ) {
 		# okay, update the ownerships!
@@ -440,6 +506,16 @@ sub truncate {
 	}
 
 	# FIXME fix relative path/sanitize path?
+
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_truncate' ) ) {
+			$callback->( $self->_truncate( $path, $offset ) );
+		} else {
+			$callback->( -ENOSYS() );
+		}
+		return;
+	}
 
 	if ( exists $self->_fs->{ $path } ) {
 		if ( ! S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
@@ -490,6 +566,16 @@ sub chmod {
 
 	# FIXME fix relative path/sanitize path?
 
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_chmod' ) ) {
+			$callback->( $self->_chmod( $path, $mode ) );
+		} else {
+			$callback->( -ENOSYS() );
+		}
+		return;
+	}
+
 	if ( exists $self->_fs->{ $path } ) {
 		# okay, update the mode!
 		$self->_fs->{ $path }{'mode'} = $mode;
@@ -514,6 +600,16 @@ sub unlink {
 	}
 
 	# FIXME fix relative path/sanitize path?
+
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_unlink' ) ) {
+			$callback->( $self->_unlink( $path ) );
+		} else {
+			$callback->( -ENOSYS() );
+		}
+		return;
+	}
 
 	if ( exists $self->_fs->{ $path } ) {
 		if ( ! S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
@@ -545,6 +641,26 @@ sub mknod {
 
 	# FIXME fix relative path/sanitize path?
 
+	# we only allow regular files to be created
+	if ( $dev == 0 ) {
+		# make sure mode is proper
+		$mode = $mode | oct( '100000' );
+	} else {
+		# unsupported mode
+		$callback->( -EINVAL() );
+		return;
+	}
+
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_mknod' ) ) {
+			$callback->( $self->_mknod( $path, $mode ) );
+		} else {
+			$callback->( -ENOSYS() );
+		}
+		return;
+	}
+
 	if ( exists $self->_fs->{ $path } or $path eq '.' or $path eq '..' ) {
 		# already exists!
 		$callback->( -EEXIST() );
@@ -552,23 +668,14 @@ sub mknod {
 		# should we add validation to make sure all parents already exist
 		# seems like touch() and friends check themselves, so we don't have to do it...
 
-		# we only allow regular files to be created
-		if ( $dev == 0 ) {
-			# make sure mode is proper
-			$mode = $mode | oct( '100000' );
+		$self->_fs->{ $path } = {
+			mode => $mode,
+			ctime => time(),
+			data => "",
+		};
 
-			$self->_fs->{ $path } = {
-				mode => $mode,
-				ctime => time(),
-				data => "",
-			};
-
-			# successful creation!
-			$callback->( 0 );
-		} else {
-			# unsupported mode
-			$callback->( -EINVAL() );
-		}
+		# successful creation!
+		$callback->( 0 );
 	}
 
 	return;
@@ -612,6 +719,16 @@ sub rename {
 
 	# FIXME fix relative path/sanitize path?
 
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_rename' ) ) {
+			$callback->( $self->_rename( $srcpath, $dstpath ) );
+		} else {
+			$callback->( -ENOSYS() );
+		}
+		return;
+	}
+
 	if ( exists $self->_fs->{ $srcpath } ) {
 		if ( ! exists $self->_fs->{ $dstpath } ) {
 			# should we add validation to make sure all parents already exist
@@ -644,15 +761,25 @@ sub mkdir {
 
 	# FIXME fix relative path/sanitize path?
 
+	# make sure mode is proper
+	$mode = $mode | oct( '040000' );
+
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_mkdir' ) ) {
+			$callback->( $self->_mkdir( $path, $mode ) );
+		} else {
+			$callback->( -ENOSYS() );
+		}
+		return;
+	}
+
 	if ( exists $self->_fs->{ $path } ) {
 		# already exists!
 		$callback->( -EEXIST() );
 	} else {
 		# should we add validation to make sure all parents already exist
 		# seems like mkdir() and friends check themselves, so we don't have to do it...
-
-		# make sure mode is proper
-		$mode = $mode | oct( '040000' );
 
 		# create the directory!
 		$self->_fs->{ $path } = {
@@ -677,6 +804,16 @@ sub rmdir {
 	}
 
 	# FIXME fix relative path/sanitize path?
+
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_rmdir' ) ) {
+			$callback->( $self->_rmdir( $path ) );
+		} else {
+			$callback->( -ENOSYS() );
+		}
+		return;
+	}
 
 	if ( exists $self->_fs->{ $path } ) {
 		if ( S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
@@ -708,6 +845,16 @@ sub readdir {
 
 	# FIXME fix relative path/sanitize path?
 
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_readdir' ) ) {
+			$callback->( $self->_readdir( $path ) );
+		} else {
+			$callback->( -ENOSYS() );
+		}
+		return;
+	}
+
 	if ( exists $self->_fs->{ $path } ) {
 		if ( S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
 			# construct all the data in this directory
@@ -737,6 +884,16 @@ sub load {
 	my $path = shift;
 
 	# FIXME fix relative path/sanitize path?
+
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_load' ) ) {
+			$_[1]->( $self->_load( $path, $_[0] ) );
+		} else {
+			$_[1]->( -ENOSYS() );
+		}
+		return;
+	}
 
 	if ( exists $self->_fs->{ $path } ) {
 		if ( ! S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
@@ -768,6 +925,16 @@ sub copy {
 
 	# FIXME fix relative path/sanitize path?
 
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_copy' ) ) {
+			$callback->( $self->_copy( $srcpath, $dstpath ) );
+		} else {
+			$callback->( -ENOSYS() );
+		}
+		return;
+	}
+
 	if ( exists $self->_fs->{ $srcpath } ) {
 		if ( ! exists $self->_fs->{ $dstpath } ) {
 			# should we add validation to make sure all parents already exist
@@ -792,6 +959,16 @@ sub copy {
 sub move {
 	my( $self, $srcpath, $dstpath, $callback ) = @_;
 
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_move' ) ) {
+			$callback->( $self->_move( $srcpath, $dstpath ) );
+		} else {
+			$callback->( -ENOSYS() );
+		}
+		return;
+	}
+
 	# to us, move is equivalent to rename
 	$self->rename( $srcpath, $dstpath, $callback );
 
@@ -801,9 +978,17 @@ sub move {
 sub scandir {
 	my( $self, $path, $maxreq, $callback ) = @_;
 
-	# this is a glorified version of readdir...
-
 	# FIXME fix relative path/sanitize path?
+
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_scandir' ) ) {
+			$callback->( $self->_scandir( $path ) );
+		} else {
+			$callback->( -ENOSYS() );
+		}
+		return;
+	}
 
 	if ( exists $self->_fs->{ $path } ) {
 		if ( S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
@@ -841,6 +1026,16 @@ sub rmtree {
 	}
 
 	# FIXME fix relative path/sanitize path?
+
+	# determine if we should be using callback mode
+	if ( ref( $self ) ne __PACKAGE__ ) {
+		if ( $self->can( '_rmtree' ) ) {
+			$callback->( $self->_rmtree( $path ) );
+		} else {
+			$callback->( -ENOSYS() );
+		}
+		return;
+	}
 
 	if ( exists $self->_fs->{ $path } ) {
 		if ( S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
@@ -1023,12 +1218,55 @@ Links are not supported at this time because of the complexity involved.
 
 Always returns success ( 0 ), because they are useless to us
 
+=head2 Subclassing this module
+
+If you want to subclass this module, please read on! The primary reason for subclassing is so you have true "callbacks"
+whenever the API is called, instead of providing a static filesystem structure. This module tries to do it's best
+to reduce the pain, but you would need to be aware of some things.
+
+The way this module implements subclassing is to call a private method whenever it detects a subclass using this
+module as a superclass. Please don't override the ::Async API! What you need to do is define your own _method subs
+for the ones you want to override. All other methods that aren't defined will return ENOSYS to the ::Async API.
+
+Available methods to implement: _rmtree, _scandir, _move, _copy, _load, _readdir, _rmdir, _mkdir, _rename, _mknod,
+_unlink, _chmod, _truncate, _chown, _utime, _stat, _write, _open.
+
+Again, please look at the source for this module to see how it interacts with the subclass. Some of the methods have
+been "simplified" to reduce the pain of managing the data. Be sure to let this module create the object, because
+we need the "readonly" attribute to be present in the hash! If "readonly" is set, this module will take over the
+logic for certain methods and not call your method if there's a readonly violation ( write(), for example ).
+
 =head2 Debugging
 
 You can enable debug mode which prints out some information ( and especially error messages ) by doing this:
 
 	sub Filesys::Virtual::Async::inMemory::DEBUG () { 1 }
 	use Filesys::Virtual::Async::inMemory;
+
+=head2 TODO
+
+=over 4
+
+=item * automatically overriding CORE::* methods
+
+	#poe@magnet
+
+	<buu> Apocalypse: Hey, while you're at it, can you make it so all file access operators in perl operate on virtual directories?
+	<Apocalypse> buu: hm you mean overriding readdir(), stat()?
+	<buu> Yes.
+	<Apocalypse> as of now you would have to explicitly use the filesys::virtual::async::inmemory object and do operations on it -> $fsv->readdir(), $fsv->open(), etc
+	<buu> But I don't want to!
+	<buu> =]
+	<Apocalypse> but that would be a fun side project to try and figure out how to hijack CORE:: stuff
+	<buu> Yes!
+	<Apocalypse> hmm you could locally scope the hijack, pass a $fsv object to the module init, and have it transparently replace all file operations in the scope with $fsv->method calls
+	<Apocalypse> why would you want it? pure laziness? haha
+	<buu> Apocalypse: For buubot..
+	<Apocalypse> mmm for now you can just use fsv::inmemory until somebody with enough wizardry does the overrides :)
+	<Apocalypse> I'll file that away in my TODO and see if I will return to it someday hah
+	<buu> Exccelent.
+
+=back
 
 =head1 EXPORT
 
