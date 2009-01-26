@@ -61,4 +61,16 @@ sub did_close {
 	} else {
 		print "error in closing fh\n";
 	}
+	do_read();
+}
+sub do_read {
+	my $buf;
+	$vfs->load( '/bar', $buf, sub {
+		my $status = shift;
+		if ( $status ) {
+			print "read $status bytes from /bar: '$buf'\n";
+		} else {
+			print "error reading from /bar\n";
+		}
+	} );
 }
