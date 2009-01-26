@@ -70,7 +70,12 @@ sub new {
 			warn 'using default FILESYSTEM = empty';
 		}
 
-		$opt{'filesystem'} = {};
+		$opt{'filesystem'} = {
+			File::Spec->rootdir() => {
+				'mode'	=> oct( '040644' ),
+				'ctime'	=> time(),
+			},
+		};
 	}
 
 	# set the cwd
@@ -170,6 +175,8 @@ sub cwd {
 
 sub open {
 	my( $self, $path, $flags, $mode, $callback ) = @_;
+
+	# FIXME fix relative path/sanitize path?
 
 	# make sure we're opening a real file
 	if ( exists $self->_fs->{ $path } ) {
@@ -294,6 +301,8 @@ sub stat {
 		return;
 	}
 
+	# FIXME fix relative path/sanitize path?
+
 	# gather the proper information
 	if ( exists $self->_fs->{ $path } ) {
 		my $info = $self->_fs->{ $path };
@@ -305,6 +314,8 @@ sub stat {
 		if ( S_ISDIR( $modes ) ) {
 			# count the children directories
 			$nlink = 2; # start with 2 ( . and .. )
+
+			# FIXME make this portable!
 			$nlink += grep { $_ =~ /^$path\/?[^\/]+$/ and S_ISDIR( $self->_fs->{ $_ }{'mode'} ) } ( keys %{ $self->_fs } );
 		}
 
@@ -352,6 +363,8 @@ sub utime {
 		return;
 	}
 
+	# FIXME fix relative path/sanitize path?
+
 	if ( exists $self->_fs->{ $path } ) {
 		# okay, update the time
 		if ( ! defined $atime ) { $atime = time() }
@@ -386,6 +399,8 @@ sub chown {
 		$callback->( -EROFS() );
 		return;
 	}
+
+	# FIXME fix relative path/sanitize path?
 
 	if ( exists $self->_fs->{ $path } ) {
 		# okay, update the ownerships!
@@ -423,6 +438,8 @@ sub truncate {
 		$callback->( -EROFS() );
 		return;
 	}
+
+	# FIXME fix relative path/sanitize path?
 
 	if ( exists $self->_fs->{ $path } ) {
 		if ( ! S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
@@ -471,6 +488,8 @@ sub chmod {
 		return;
 	}
 
+	# FIXME fix relative path/sanitize path?
+
 	if ( exists $self->_fs->{ $path } ) {
 		# okay, update the mode!
 		$self->_fs->{ $path }{'mode'} = $mode;
@@ -493,6 +512,8 @@ sub unlink {
 		$callback->( -EROFS() );
 		return;
 	}
+
+	# FIXME fix relative path/sanitize path?
 
 	if ( exists $self->_fs->{ $path } ) {
 		if ( ! S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
@@ -521,6 +542,8 @@ sub mknod {
 		$callback->( -EROFS() );
 		return;
 	}
+
+	# FIXME fix relative path/sanitize path?
 
 	if ( exists $self->_fs->{ $path } or $path eq '.' or $path eq '..' ) {
 		# already exists!
@@ -587,6 +610,8 @@ sub rename {
 		return;
 	}
 
+	# FIXME fix relative path/sanitize path?
+
 	if ( exists $self->_fs->{ $srcpath } ) {
 		if ( ! exists $self->_fs->{ $dstpath } ) {
 			# should we add validation to make sure all parents already exist
@@ -616,6 +641,8 @@ sub mkdir {
 		$callback->( -EROFS() );
 		return;
 	}
+
+	# FIXME fix relative path/sanitize path?
 
 	if ( exists $self->_fs->{ $path } ) {
 		# already exists!
@@ -649,6 +676,8 @@ sub rmdir {
 		return;
 	}
 
+	# FIXME fix relative path/sanitize path?
+
 	if ( exists $self->_fs->{ $path } ) {
 		if ( S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
 			# valid directory, does this directory have any children ( files, subdirs ) ??
@@ -677,9 +706,12 @@ sub rmdir {
 sub readdir {
 	my( $self, $path, $callback ) = @_;
 
+	# FIXME fix relative path/sanitize path?
+
 	if ( exists $self->_fs->{ $path } ) {
 		if ( S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
 			# construct all the data in this directory
+			# FIXME make this portable!
 			my @list = map { my $f = $_; $f =~ s/^$path\/?//; $f }
 				grep { $_ =~ /^$path\/?[^\/]+$/ } ( keys %{ $self->_fs } );
 
@@ -703,6 +735,8 @@ sub load {
 	# have to leave @_ alone so caller will get proper $data reference :(
 	my $self = shift;
 	my $path = shift;
+
+	# FIXME fix relative path/sanitize path?
 
 	if ( exists $self->_fs->{ $path } ) {
 		if ( ! S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
@@ -731,6 +765,8 @@ sub copy {
 		$callback->( -EROFS() );
 		return;
 	}
+
+	# FIXME fix relative path/sanitize path?
 
 	if ( exists $self->_fs->{ $srcpath } ) {
 		if ( ! exists $self->_fs->{ $dstpath } ) {
@@ -767,9 +803,12 @@ sub scandir {
 
 	# this is a glorified version of readdir...
 
+	# FIXME fix relative path/sanitize path?
+
 	if ( exists $self->_fs->{ $path } ) {
 		if ( S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
 			# construct all the data in this directory
+			# FIXME make this portable!
 			my @files = map { my $f = $_; $f =~ s/^$path\/?//; $f }
 				grep { $_ =~ /^$path\/?[^\/]+$/ and ! S_ISDIR( $self->_fs->{ $_ }{'mode'} ) } ( keys %{ $self->_fs } );
 
@@ -801,9 +840,12 @@ sub rmtree {
 		return;
 	}
 
+	# FIXME fix relative path/sanitize path?
+
 	if ( exists $self->_fs->{ $path } ) {
 		if ( S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
 			# delete all stuff under this path
+			# FIXME make this portable!
 			my @entries = grep { $_ =~ /^$path\/?.+$/ } ( keys %{ $self->_fs } );
 			foreach my $e ( @entries ) {
 				delete $self->_fs->{ $e };
@@ -845,320 +887,148 @@ sub fdatasync {
 __END__
 =head1 NAME
 
-POE::Component::Fuse - Using FUSE in POE asynchronously
+Filesys::Virtual::Async::inMemory - Mount filesystems that reside in memory ( sort of ramfs )
 
 =head1 SYNOPSIS
 
 	#!/usr/bin/perl
-	# a simple example to illustrate directory listings
 	use strict; use warnings;
+	use Fcntl qw( :DEFAULT :mode );	# S_IFREG S_IFDIR, O_SYNC O_LARGEFILE etc
 
-	use POE qw( Component::Fuse );
-	use base 'POE::Session::AttributeBased';
+	# uncomment this to enable debugging
+	#sub Filesys::Virtual::Async::inMemory::DEBUG { 1 }
 
-	# constants we need to interact with FUSE
-	use Errno qw( :POSIX );		# ENOENT EISDIR etc
+	use Filesys::Virtual::Async::inMemory;
 
-	my %files = (
-		'/' => {	# a directory
-			type => 0040,
-			mode => 0755,
-			ctime => time()-1000,
-		},
-		'/a' => {	# a file
-			type => 0100,
-			mode => 0644,
-			ctime => time()-2000,
-		},
-		'/foo' => {	# a directory
-			type => 0040,
-			mode => 0755,
-			ctime => time()-3000,
-		},
-		'/foo/bar' => {	# a file
-			type => 0100,
-			mode => 0755,
-			ctime => time()-4000,
+	# create the filesystem
+	my $vfs = Filesys::Virtual::Async::inMemory->new(
+		'filesystem'	=> {
+			'/'	=> {
+				mode => oct( '040755' ),
+				ctime => time(),
+			},
 		},
 	);
 
-	POE::Session->create(
-		__PACKAGE__->inline_states(),
-	);
-
-	POE::Kernel->run();
-	exit;
-
-	sub _start : State {
-		# create the fuse session
-		POE::Component::Fuse->spawn;
-		print "Check us out at the default place: /tmp/poefuse\n";
-		print "You can navigate the directory, but no I/O operations are supported!\n";
-	}
-	sub _child : State {
-		return;
-	}
-	sub _stop : State {
-		return;
-	}
-
-	# return unimplemented for the rest of the FUSE api
-	sub _default : State {
-		if ( $_[ARG0] =~ /^fuse/ ) {
-			$_[ARG1]->[0]->( -ENOSYS() );
-		}
-		return;
-	}
-
-	sub fuse_CLOSED : State {
-		print "shutdown: $_[ARG0]\n";
-		return;
-	}
-
-	sub fuse_getattr : State {
-		my( $postback, $context, $path ) = @_[ ARG0 .. ARG2 ];
-
-		if ( exists $files{ $path } ) {
-			my $size = exists( $files{ $path }{'cont'} ) ? length( $files{ $path }{'cont'} ) : 0;
-			$size = $files{ $path }{'size'} if exists $files{ $path }{'size'};
-			my $modes = ( $files{ $path }{'type'} << 9 ) + $files{ $path }{'mode'};
-			my ($dev, $ino, $rdev, $blocks, $gid, $uid, $nlink, $blksize) = ( 0, 0, 0, 1, (split( /\s+/, $) ))[0], $>, 1, 1024 );
-			my ($atime, $ctime, $mtime);
-			$atime = $ctime = $mtime = $files{ $path }{'ctime'};
-
-			# finally, return the darn data!
-			$postback->( $dev, $ino, $modes, $nlink, $uid, $gid, $rdev, $size, $atime, $mtime, $ctime, $blksize, $blocks );
-		} else {
-			# path does not exist
-			$postback->( -ENOENT() );
-		}
-
-		return;
-	}
-
-	sub fuse_getdir : State {
-		my( $postback, $context, $path ) = @_[ ARG0 .. ARG2 ];
-
-		if ( exists $files{ $path } ) {
-			if ( $files{ $path }{'type'} & 0040 ) {
-				# construct all the data in this directory
-				my @list = map { $_ =~ s/^$path\/?//; $_ }
-					grep { $_ =~ /^$path\/?[^\/]+$/ } ( keys %files );
-
-				# no need to add "." and ".." - FUSE handles it automatically!
-
-				# return the list with a success code on the end
-				$postback->( @list, 0 );
-			} else {
-				# path is not a directory!
-				$postback->( -ENOTDIR() );
+	# use $vfs as you wish!
+	$vfs->readdir( '/', sub {	# should print out nothing
+		my $data = shift;
+		if ( defined $data ) {
+			foreach my $e ( @$data ) {
+				print "entry in / -> $e\n";
 			}
+			print "end of listing for /\n";
 		} else {
-			# path does not exist!
-			$postback->( -ENOENT() );
+			print "error reading /\n";
 		}
+		do_file_io();
+	} );
 
-		return;
+	my $fh;
+	sub do_file_io {
+		$vfs->mknod( '/bar', oct( '100644' ), 0, \&did_mknod );
+	}
+	sub did_mknod {
+		if ( $_[0] == 0 ) {
+			# write to it!
+			$vfs->open( '/bar', O_RDWR, 0, \&did_open );
+		} else {
+			print "error mknod /bar\n";
+		}
+	}
+	sub did_open {
+		$fh = shift;
+		if ( defined $fh ) {
+			my $buf = "foobar";
+			$vfs->write( $fh, 0, length( $buf ), $buf, 0, \&did_write );
+		} else {
+			print "error opening /bar\n";
+		}
+	}
+	sub did_write {
+		my $wrote = shift;
+		if ( $wrote ) {
+			print "successfully wrote to /bar\n";
+			$vfs->close( $fh, \&did_close );
+		} else {
+			print "error writing to /bar\n";
+		}
+	}
+	sub did_close {
+		my $status = shift;
+		if ( $status == 0 ) {
+			print "successfuly closed fh\n";
+		} else {
+			print "error in closing fh\n";
+		}
 	}
 
-	sub fuse_getxattr : State {
-		my( $postback, $context, $path, $attr ) = @_[ ARG0 .. ARG3 ];
-
-		# we don't have any extended attribute support
-		$postback->( 0 );
-
-		return;
-	}
 
 =head1 ABSTRACT
 
-Using this module will enable you to asynchronously process FUSE requests from the kernel in POE. Think of
-this module as a simple wrapper around L<Fuse> to POEify it.
+Using this module will enable you to have "ramfs" filesystems in the L<Filesys::Virtual::Async> API.
 
 =head1 DESCRIPTION
 
-This module allows you to use FUSE filesystems in POE. Basically, it is a wrapper around L<Fuse> and exposes
-it's API via events. Furthermore, you can use L<Filesys::Virtual> to handle the filesystem.
+This module lets you run the L<Filesys::Virtual::Async> API entirely in memory. Nothing special here, really :)
 
-The standard way to use this module is to do this:
+This module makes extensive use of the functions in L<File::Spec> to be portable, so it might trip you up if
+you are developing on a linux box and trying to play with '/foo' on a win32 box :)
 
-	use POE;
-	use POE::Component::Fuse;
-
-	POE::Component::Fuse->spawn( ... );
-
-	POE::Session->create( ... );
-
-	POE::Kernel->run();
-
-Naturally, the best way to quickly get up to speed is to study other implementations of FUSE to see what
-they have done. Furthermore, please look at the scripts in the examples/ directory in the tarball!
-
-=head2 Starting Fuse
-
-To start Fuse, just call it's spawn method:
-
-	POE::Component::Fuse->spawn( ... );
-
-This method will return failure on errors or return success.
-
-NOTE: The act of starting/stopping PoCo-Fuse fires off _child events, read the POE documentation on
-what to do with them :)
+=head2 Initializing the vfs
 
 This constructor accepts either a hashref or a hash, valid options are:
 
-=head3 alias
+=head3 filesystem
 
-This sets the session alias in POE.
+This sets the "filesystem" that we will have in memory. It needs to be a particular structure!
 
-The default is: "fuse"
+If this argument is missing, we will create an empty filesystem.
 
-=head3 mount
+=head3 readonly
 
-This sets the mountpoint for FUSE.
-
-If this mountpoint doesn't exist ( and the "mkdir" option isn't set ) spawn() will return failure.
-
-The default is: "/tmp/poefuse"
-
-=head3 mountoptions
-
-This passes the options to FUSE for mounting.
-
-NOTE: this is a comma-separated string!
-
-The default is: undef
-
-=head3 mkdir
-
-If true, PoCo-Fuse will attempt to mkdir the mountpoint if it doesn't exist.
-
-If the mkdir attempt fails, spawn() will return failure.
+This enables readonly mode, which will prohibit any changes to the filesystem.
 
 The default is: false
 
-=head3 umount
+=head3 cwd
 
-If true, PoCo-Fuse will attempt to umount the filesystem on exit/shutdown.
+This sets the "current working directory" in the filesystem.
 
-This basically calls "fusermount -u -z $mountpoint"
+The default is: File::Spec->rootdir()
 
-WARNING: This is not exactly portable and is in the testing stage. Feedback would be much appreciated!
+=head2 METHODS
 
-The default is: false
+=head3 readonly
 
-=head3 prefix
+Enables/disables readonly mode. This is also an accessor.
 
-The prefix for all events generated by this module when using the "session" method.
+=head2 Special Cases
 
-The default is: "fuse_"
+This module does a good job of covering the entire ::Async API, but there are some areas that needs mentioning.
 
-=head3 session
+=head3 root
 
-The session to send all FUSE events to. Used in conjunction with the "prefix" option, you can control
-where the events arrive.
+Unimplemented, No sense in changing the root during run-time...
 
-If this option is missing ( or POE is not running ) and "vfilesys" isn't enabled spawn() will return failure.
+=head3 stat
 
-NOTE: You cannot use this and "vfilesys" at the same time! PoCo-Fuse will pick vfilesys over this!
+Array mode not supported because it would require extra munging on my part to get the paths right.
 
-The default is: calling session ( if POE is running )
+=head3 link/symlink/lstat
 
-=head3 vfilesys
+Links are not supported at this time because of the complexity involved.
 
-The L<Filesys::Virtual> object to use as our filesystem. PoCo-Fuse will proceed to use L<Fuse::Filesys::Virtual>
-to wrap around it and process the events internally.
+=head3 readahead/fsync/fdatasync
 
-Furthermore, you can also use L<Filesys::Virtual::Async> subclasses, this module understands their callback API
-and will process it properly!
+Always returns success ( 0 ), because they are useless to us
 
-If this option is missing and "session" isn't enabled spawn() will return failure.
-
-NOTE: You cannot use this and "session" at the same time! PoCo-Fuse will pick this over session!
-
-Compatibility has not been tested with all Filesys::Virtual::XYZ subclasses, so please let me know if some isn't
-working properly!
-
-The default is: not used
-
-=head2 Commands
-
-There is only one command you can use, because this module does nothing except process FUSE events.
-
-=head3 shutdown
-
-Tells this module to kill the FUSE mount and terminates the session. Due to the semantics of FUSE, this
-will often result in a wedged filesystem. You would need to either umount it manually ( via "fusermount -u $mount" )
-or by enabling the "umount" option.
-
-=head2 Events
-
-If you aren't using the Filesys::Virtual interface, the FUSE api will be exposed to you in it's glory via
-events to your session. You can process them, and send the data back via the supplied postback. All the arguments
-are identical to the one in L<Fuse> so please take a good look at that module for more information!
-
-The only place where this differs is the additional arguments. All events will receive 2 extra arguments in front
-of the standard FUSE args. They are the postback and context info. The postback is self-explanatory, you
-supply the return data to it and it'll fire an event back to PoCo-Fuse for processing. The context is the
-calling context received from FUSE. It is a hashref with the 3 keys in it: uid, gid, pid. It is received via
-the fuse_get_context() sub from L<Fuse>.
-
-Remember that the events are the fuse methods with the prefix tacked on to them. A typical FUSE handler would
-look something like the example below. ( it is sugared via POE::Session::AttributeBased hah )
-
-	sub fuse_getdir : State {
-		my( $postback, $context, $path ) = @_[ ARG0 .. ARG2 ];
-
-		# somehow get our data, we fake it here for instructional reasons
-		$postback->( 'foo', 'bar', 0 );
-		return;
-	}
-
-Again, pretty please read the L<Fuse> documentation for all the events you can receive. Here's the list
-as of Fuse v0.09: getattr readlink getdir mknod mkdir unlink rmdir symlink rename link chmod chown truncate
-utime open read write statfs flush release fsync setxattr getxattr listxattr removexattr.
-
-=head3 CLOSED
-
-This is a special event sent to the session notifying it of component shutdown. As usual, it will be prefixed by the
-prefix set in the options. If you are using the vfilesys option, this will not be sent anywhere.
-
-The event handler will get one argument, the error string. If you shut down the component, it will be "shutdown",
-otherwise it will contain some error string. A sample handler is below.
-
-	sub fuse_CLOSED : State {
-		my $error = $_[ARG0];
-		if ( $error ne 'shutdown' ) {
-			print "AIEE: $error\n";
-
-			# do some actions like emailing the sysadmin, restarting the component, etc...
-		} else {
-			# we told it to shutdown, so what do we want to do next?
-		}
-
-		return;
-	}
-
-=head2 Internals
-
-=head3 XSification
-
-This module does it's magic by spawning a subprocess via Wheel::Run and passing events back and forth to
-the L<Fuse> module loaded in it. This isn't exactly optimal which is obvious, but it works perfectly!
-
-I'm working on improving this by using XS but it will take me some time seeing how I'm a n00b :( Furthermore,
-FUSE doesn't really help because I have to figure out how to get at the filehandle buried deep in it and expose
-it to POE...
-
-If anybody have the time and knowledge, please help me out and we can have fun converting this to XS!
-
-=head3 Debugging
+=head2 Debugging
 
 You can enable debug mode which prints out some information ( and especially error messages ) by doing this:
 
-	sub Filesys::Virtual::Async::Dispatcher::DEBUG () { 1 }
-	use Filesys::Virtual::Async::Dispatcher;
-
+	sub Filesys::Virtual::Async::inMemory::DEBUG () { 1 }
+	use Filesys::Virtual::Async::inMemory;
 
 =head1 EXPORT
 
@@ -1166,21 +1036,13 @@ None.
 
 =head1 SEE ALSO
 
-L<POE>
-
-L<Fuse>
-
-L<Filesys::Virtual>
-
-L<Fuse::Filesys::Virtual>
-
 L<Filesys::Virtual::Async>
 
 =head1 SUPPORT
 
 You can find documentation for this module with the perldoc command.
 
-    perldoc POE::Component::Fuse
+    perldoc Filesys::Virtual::Async::inMemory
 
 =head2 Websites
 
@@ -1188,26 +1050,26 @@ You can find documentation for this module with the perldoc command.
 
 =item * AnnoCPAN: Annotated CPAN documentation
 
-L<http://annocpan.org/dist/POE-Component-Fuse>
+L<http://annocpan.org/dist/Filesys-Virtual-Async-inMemory>
 
 =item * CPAN Ratings
 
-L<http://cpanratings.perl.org/d/POE-Component-Fuse>
+L<http://cpanratings.perl.org/d/Filesys-Virtual-Async-inMemory>
 
 =item * RT: CPAN's request tracker
 
-L<http://rt.cpan.org/NoAuth/Bugs.html?Dist=POE-Component-Fuse>
+L<http://rt.cpan.org/NoAuth/Bugs.html?Dist=Filesys-Virtual-Async-inMemory>
 
 =item * Search CPAN
 
-L<http://search.cpan.org/dist/POE-Component-Fuse>
+L<http://search.cpan.org/dist/Filesys-Virtual-Async-inMemory>
 
 =back
 
 =head2 Bugs
 
-Please report any bugs or feature requests to C<bug-poe-component-fuse at rt.cpan.org>, or through
-the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=POE-Component-Fuse>.  I will be
+Please report any bugs or feature requests to C<bug-filesys-virtual-async-inmemory at rt.cpan.org>, or through
+the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Filesys-Virtual-Async-inMemory>.  I will be
 notified, and then you'll automatically be notified of progress on your bug as I make changes.
 
 =head1 AUTHOR
@@ -1215,8 +1077,6 @@ notified, and then you'll automatically be notified of progress on your bug as I
 Apocalypse E<lt>apocal@cpan.orgE<gt>
 
 Props goes to xantus who got me motivated to write this :)
-
-Also, this module couldn't have gotten off the ground if not for L<Fuse> which did the heavy XS lifting!
 
 =head1 COPYRIGHT AND LICENSE
 
