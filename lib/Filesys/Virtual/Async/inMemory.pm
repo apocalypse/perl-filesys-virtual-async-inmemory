@@ -236,9 +236,12 @@ sub read {
 	my $self = shift;
 	my $fh = shift;
 
+	# seek to $offset
+	$fh->seek( $_[0], SEEK_SET );
+
 	# read the data from the fh!
 	my $buf = '';
-	my $ret = $fh->read( $buf, $_[1], $_[0] );
+	my $ret = $fh->read( $buf, $_[1], 0 );
 	if ( ! defined $ret or $ret == 0 ) {
 		$_[4]->( -EIO() );
 	} else {
@@ -270,14 +273,16 @@ sub write {
 			return;
 		}
 
+		# seek to $offset
+		$fh->seek( $offset, SEEK_SET );
+
 		# write the data!
-		# FIXME we cannot use dataoffset, eh...
-		my $ret = $fh->write( $data, $length, $offset );
+		my $ret = $fh->write( $data, $length, $dataoffset );
 		if ( ! $ret ) {
 			$callback->( -EIO() );
 		} else {
 			# return length
-			$callback->( length( $data ) );
+			$callback->( length( $data ) - $dataoffset );
 		}
 	}
 
