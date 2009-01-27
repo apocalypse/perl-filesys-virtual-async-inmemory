@@ -864,8 +864,8 @@ sub readdir {
 		if ( S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
 			# construct all the data in this directory
 			# FIXME make this portable!
-			my @list = map { my $f = $_; $f =~ s/^$path\/?//; $f }
-				grep { $_ =~ /^$path\/?[^\/]+$/ } ( keys %{ $self->_fs } );
+			my @list = grep { $_ =~ /^$path\/?[^\/]+$/ } ( keys %{ $self->_fs } );
+			s/^$path\/?// for @list;
 
 			# no need to add "." and ".."
 
@@ -999,11 +999,11 @@ sub scandir {
 		if ( S_ISDIR( $self->_fs->{ $path }{'mode'} ) ) {
 			# construct all the data in this directory
 			# FIXME make this portable!
-			my @files = map { my $f = $_; $f =~ s/^$path\/?//; $f }
-				grep { $_ =~ /^$path\/?[^\/]+$/ and ! S_ISDIR( $self->_fs->{ $_ }{'mode'} ) } ( keys %{ $self->_fs } );
+			my @files = grep { $_ =~ /^$path\/?[^\/]+$/ and ! S_ISDIR( $self->_fs->{ $_ }{'mode'} ) } ( keys %{ $self->_fs } );
+			s/^$path\/?// for @files;
 
-			my @dirs = map { my $f = $_; $f =~ s/^$path\/?//; $f }
-				grep { $_ =~ /^$path\/?[^\/]+$/ and S_ISDIR($self->_fs->{ $_ }{'mode'} ) } ( keys %{ $self->_fs } );
+			my @dirs = grep { $_ =~ /^$path\/?[^\/]+$/ and S_ISDIR($self->_fs->{ $_ }{'mode'} ) } ( keys %{ $self->_fs } );
+			s/^$path\/?// for @dirs;
 
 			# no need to add "." and ".."
 
