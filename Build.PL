@@ -31,6 +31,10 @@ my $build = Module::Build->new(
 
 		# handy in-memory FHs
 		'IO::Scalar'			=> 0,
+		'File::Spec'			=> 0,
+
+		# we need a recent perl
+		'perl'				=> '5.006',
 	},
 
 	# include the standard stuff in META.yml

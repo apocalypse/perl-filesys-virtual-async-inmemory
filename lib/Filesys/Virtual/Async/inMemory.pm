@@ -4,7 +4,7 @@ use strict; use warnings;
 
 # Initialize our version
 use vars qw( $VERSION );
-$VERSION = '0.01';
+$VERSION = '0.02';
 
 # Set our parent
 use base 'Filesys::Virtual::Async';
@@ -292,12 +292,6 @@ sub write {
 sub sendfile {
 	my( $self, $out_fh, $in_fh, $in_offset, $length, $callback ) = @_;
 
-	# are we readonly?
-	if ( $self->readonly ) {
-		$callback->( -EROFS() );
-		return;
-	}
-
 	# start by reading $length from $in_fh
 	my $buf = '';
 	my $ret = $in_fh->read( $buf, $length, $in_offset );
@@ -356,6 +350,7 @@ sub stat {
 
 	# gather the proper information
 	if ( exists $self->_fs->{ $path } ) {
+		## no critic ( ProhibitAccessOfPrivateData )
 		my $info = $self->_fs->{ $path };
 
 		my $size = exists $info->{'data'} ? length( $info->{'data'} ) : 0;
@@ -964,6 +959,12 @@ sub copy {
 sub move {
 	my( $self, $srcpath, $dstpath, $callback ) = @_;
 
+	# are we readonly?
+	if ( $self->readonly ) {
+		$callback->( -EROFS() );
+		return;
+	}
+
 	# determine if we should be using callback mode
 	if ( ref( $self ) ne __PACKAGE__ ) {
 		if ( $self->can( '_move' ) ) {
@@ -1085,6 +1086,9 @@ sub fdatasync {
 
 1;
 __END__
+
+=for stopwords API ENOSYS Kwalitee callbacks com cwd diff github linux readonly stat vfs xantus ramfs AnnoCPAN CPAN CPANTS RT TODO
+
 =head1 NAME
 
 Filesys::Virtual::Async::inMemory - Mount filesystems that reside in memory ( sort of ramfs )
@@ -1273,10 +1277,6 @@ You can enable debug mode which prints out some information ( and especially err
 
 =back
 
-=head1 EXPORT
-
-None.
-
 =head1 SEE ALSO
 
 L<Filesys::Virtual::Async>
@@ -1291,6 +1291,10 @@ You can find documentation for this module with the perldoc command.
 
 =over 4
 
+=item * Search CPAN
+
+L<http://search.cpan.org/dist/Filesys-Virtual-Async-inMemory>
+
 =item * AnnoCPAN: Annotated CPAN documentation
 
 L<http://annocpan.org/dist/Filesys-Virtual-Async-inMemory>
@@ -1299,13 +1303,33 @@ L<http://annocpan.org/dist/Filesys-Virtual-Async-inMemory>
 
 L<http://cpanratings.perl.org/d/Filesys-Virtual-Async-inMemory>
 
-=item * RT: CPAN's request tracker
+=item * CPAN Forum
+
+L<http://cpanforum.com/dist/Filesys-Virtual-Async-inMemory>
+
+=item * RT: CPAN's Request Tracker
 
 L<http://rt.cpan.org/NoAuth/Bugs.html?Dist=Filesys-Virtual-Async-inMemory>
 
-=item * Search CPAN
+=item * CPANTS Kwalitee
 
-L<http://search.cpan.org/dist/Filesys-Virtual-Async-inMemory>
+L<http://cpants.perl.org/dist/overview/Filesys-Virtual-Async-inMemory>
+
+=item * CPAN Testers Results
+
+L<http://cpantesters.org/distro/F/Filesys-Virtual-Async-inMemory.html>
+
+=item * CPAN Testers Matrix
+
+L<http://matrix.cpantesters.org/?dist=Filesys-Virtual-Async-inMemory>
+
+=item * Git Source Code Repository
+
+This code is currently hosted on github.com under the account "apocalypse". Please feel free to browse it
+and pull from it, or whatever. If you want to contribute patches, please send me a diff or prod me to pull
+from your repository :)
+
+L<http://github.com/apocalypse/perl-filesys-virtual-async-inmemory>
 
 =back
 
@@ -1323,7 +1347,7 @@ Props goes to xantus who got me motivated to write this :)
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright 2009 by Apocalypse
+Copyright 2010 by Apocalypse
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself.

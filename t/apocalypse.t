@@ -8,6 +8,6 @@ if ( $@ ) {
 } else {
 	require Test::NoWarnings; require Test::Pod; require Test::Pod::Coverage;	# lousy hack for kwalitee
 	is_apocalypse_here( {
-#		deny => qr/^(?:(?:OutdatedPrereq|Dependencie)s|ModuleUsed|Strict|Fixme)$/,
+		deny => qr/^(?:ModuleUsed|Strict|Fixme|Pod_(?:Coverage|Spelling)|Synopsis)$/,
 	} );
 }
